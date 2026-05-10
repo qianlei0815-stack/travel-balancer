@@ -493,6 +493,21 @@ def show_admin(group_id: str):
     st.markdown("#### 📎 邀请成员")
     st.info("添加成员后，将每位成员的专属链接发给他们即可（一人一链，彼此隔离）")
 
+    # 自动检测部署域名，支持环境变量 PUBLIC_URL 覆盖
+    def _base_url() -> str:
+        env = os.getenv("PUBLIC_URL", "").strip()
+        if env:
+            return env.rstrip("/")
+        try:
+            origin = st.context.headers.get("origin", "")
+            if origin:
+                return origin.rstrip("/")
+        except Exception:
+            pass
+        return "http://localhost:8501"
+
+    base_url = _base_url()
+
     members = _scan_members(group_id)
     all_completed = bool(members)
 
@@ -500,15 +515,17 @@ def show_admin(group_id: str):
     if members:
         st.markdown("**👥 已添加的成员：**")
         for uid, m in members.items():
-            link = f"?group_id={group_id}&user_id={uid}"
+            full_link = f"{base_url}/?group_id={group_id}&user_id={uid}"
             if m["status"] == "completed":
                 st.success(f"✅ **{m['name']}** — 已提交")
                 with st.expander(f"🔗 {m['name']} 的专属链接"):
-                    st.code(link)
+                    st.markdown(f"[{full_link}]({full_link})")
+                    st.code(full_link)
             else:
                 st.warning(f"⏳ **{m['name']}** — 未提交")
                 with st.expander(f"🔗 {m['name']} 的专属链接"):
-                    st.code(link)
+                    st.markdown(f"[{full_link}]({full_link})")
+                    st.code(full_link)
                 all_completed = False
         st.caption(f"**{sum(1 for m in members.values() if m['status']=='completed')} / {len(members)}** 人已完成")
     else:

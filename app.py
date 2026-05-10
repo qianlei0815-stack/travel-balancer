@@ -823,11 +823,15 @@ _AMAP_HTML_TPL = r"""
 
   // Build tab bar
   var days = Object.keys(allData).sort(function(a,b) {{ return a - b; }});
-  var tabHtml = '';
+  var tabBar = document.getElementById('tabBar');
   days.forEach(function(d) {{
-    tabHtml += '<button class="tab-btn" data-day="' + d + '" onclick="renderDay(' + d + ')">Day ' + d + '</button>';
+    var btn = document.createElement('button');
+    btn.className = 'tab-btn';
+    btn.textContent = 'Day ' + d;
+    btn.dataset.day = d;
+    btn.addEventListener('click', function() {{ renderDay(parseInt(d)); }});
+    tabBar.appendChild(btn);
   }});
-  document.getElementById('tabBar').innerHTML = tabHtml;
 
   // Build legend
   var legendHtml = days.map(function(d) {{

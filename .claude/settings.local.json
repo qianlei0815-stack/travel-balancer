@@ -16,7 +16,12 @@
       "PowerShell(python -c \"import sys; [print\\(i, p\\) for i, p in enumerate\\(sys.path\\)]; print\\('---'\\); import pywintypes; print\\('file:', pywintypes.__file__\\); print\\('spec:', __import__\\('importlib'\\).util.find_spec\\('pywintypes'\\)\\)\")",
       "PowerShell(mkdir *)",
       "PowerShell(winget install *)",
-      "PowerShell(git *)"
+      "PowerShell(git *)",
+      "PowerShell(gh *)",
+      "PowerShell($env:Path = [Environment]::GetEnvironmentVariable\\(\"Path\", \"Machine\"\\) + \";\" + [Environment]::GetEnvironmentVariable\\(\"Path\", \"User\"\\); cd \"D:\\\\关于我\\\\travel_balancer\"; git status 2>&1)",
+      "PowerShell($env:Path = [Environment]::GetEnvironmentVariable\\(\"Path\", \"Machine\"\\) + \";\" + [Environment]::GetEnvironmentVariable\\(\"Path\", \"User\"\\); cd \"D:\\\\关于我\\\\travel_balancer\"; git status 2>&1; git log --oneline -3 2>&1)",
+      "PowerShell($env:Path = [Environment]::GetEnvironmentVariable\\(\"Path\", \"Machine\"\\) + \";\" + [Environment]::GetEnvironmentVariable\\(\"Path\", \"User\"\\); cd \"D:\\\\关于我\\\\travel_balancer\"; git diff --stat 2>&1)",
+      "PowerShell($env:Path = [Environment]::GetEnvironmentVariable\\(\"Path\", \"Machine\"\\) + \";\" + [Environment]::GetEnvironmentVariable\\(\"Path\", \"User\"\\); cd \"D:\\\\关于我\\\\travel_balancer\"; git diff HEAD --name-only 2>&1)"
     ]
   }
 }

@@ -14,6 +14,7 @@ import os
 import sys
 import secrets
 import string
+import time
 from pathlib import Path
 from datetime import date, datetime
 
@@ -528,6 +529,15 @@ def show_admin(group_id: str):
                     st.code(full_link)
                 all_completed = False
         st.caption(f"**{sum(1 for m in members.values() if m['status']=='completed')} / {len(members)}** 人已完成")
+
+        # 自动刷新：有成员未提交且尚未生成结果时，每 8 秒自动检查
+        if not all_completed and not load_result(group_id):
+            st.caption("🔄 等待成员提交中，页面每 8 秒自动刷新……")
+            if "admin_auto_refresh" not in st.session_state:
+                st.session_state.admin_auto_refresh = time.time()
+            if time.time() - st.session_state.admin_auto_refresh >= 8:
+                st.session_state.admin_auto_refresh = time.time()
+                st.rerun()
     else:
         st.info("⏳ 还没有添加成员，在下方添加第一位成员吧")
 

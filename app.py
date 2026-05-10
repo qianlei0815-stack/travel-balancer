@@ -149,6 +149,42 @@ def delete_group(group_id: str) -> None:
         shutil.rmtree(path)
 
 
+# ====================================================================
+#  投票数据层
+# ====================================================================
+
+def load_votes(group_id: str) -> dict:
+    """加载投票数据，返回 {user_id: "A"|"B"}"""
+    path = _group_path(group_id) / "vote.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def save_vote(group_id: str, user_id: str, choice: str) -> None:
+    votes = load_votes(group_id)
+    votes[user_id] = choice
+    path = _group_path(group_id) / "vote.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(votes, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def delete_vote(group_id: str, user_id: str) -> None:
+    votes = load_votes(group_id)
+    votes.pop(user_id, None)
+    path = _group_path(group_id) / "vote.json"
+    path.write_text(json.dumps(votes, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def clear_votes(group_id: str) -> None:
+    path = _group_path(group_id) / "vote.json"
+    if path.exists():
+        path.unlink()
+
+
 def _scan_members(group_id: str) -> dict:
     """
     扫描目录获取成员列表 —— 仅限 admin 页面调用（admin=true 时）。
@@ -320,6 +356,25 @@ def show_game_form(group_id: str, user_id: str):
             if st.session_state.get(f"show_result_{user_id}"):
                 group = load_group(group_id)
                 _show_result(result, group)
+                # ---- 投票区（仅双方案时显示） ----
+                if result.get("plan_b"):
+                    st.markdown("---")
+                    st.markdown("### 🗳️ 投票")
+                    votes = load_votes(group_id)
+                    current_vote = votes.get(user_id, "")
+                    if current_vote:
+                        label = "方案 A：集体妥协 🤝" if current_vote == "A" else "方案 B：动态分头 🏃/☕"
+                        st.success(f"✅ 你已投票：**{label}**")
+                        if st.button("✏️ 改票", key=f"cv_{user_id}"):
+                            delete_vote(group_id, user_id)
+                            st.rerun()
+                    else:
+                        vote_opts = ["方案 A：集体妥协 🤝", "方案 B：动态分头 🏃/☕"]
+                        picked = st.radio("你更倾向于哪套方案？", vote_opts, index=None, key=f"vr_{user_id}")
+                        if picked and st.button("🗳️ 提交投票", type="primary", key=f"vb_{user_id}"):
+                            choice = "A" if picked.startswith("方案 A") else "B"
+                            save_vote(group_id, user_id, choice)
+                            st.rerun()
         else:
             st.markdown(
                 '<div style="text-align:center;padding:1rem;background:#fef3e2;'
@@ -567,8 +622,32 @@ def show_admin(group_id: str):
     result = load_result(group_id)
     if result:
         _show_result(result, group)
+
+        # 投票看板（仅 AB 双方案时显示）
+        if result.get("plan_b"):
+            votes = load_votes(group_id)
+            if votes:
+                all_members = _scan_members(group_id)
+                count_a = sum(1 for v in votes.values() if v == "A")
+                count_b = sum(1 for v in votes.values() if v == "B")
+                st.markdown("---")
+                st.markdown("#### 🗳️ 投票结果")
+                ca, cb, ct = st.columns(3)
+                with ca:
+                    st.metric("方案 A 🤝", count_a)
+                with cb:
+                    st.metric("方案 B 🏃", count_b)
+                with ct:
+                    st.metric("已投票", len(votes))
+                detail = []
+                for uid, choice in votes.items():
+                    name = all_members.get(uid, {}).get("name", uid[:6])
+                    detail.append(f"{name} → 方案 {choice}")
+                st.caption(" · ".join(detail))
+
         if st.button("🔄 **重新计算**", use_container_width=True):
             save_result(group_id, None)
+            clear_votes(group_id)
             st.rerun()
     else:
         ready = all_completed and bool(members) and has_api and bool(dest.strip())

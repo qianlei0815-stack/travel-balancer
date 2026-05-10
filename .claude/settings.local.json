@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:Path)",
+      "PowerShell(npm *)",
+      "PowerShell($env:Path = [Environment]::GetEnvironmentVariable\\(\"Path\", \"Machine\"\\) + \";\" + [Environment]::GetEnvironmentVariable\\(\"Path\", \"User\"\\); npm.cmd --version)",
+      "PowerShell($env:Path = [Environment]::GetEnvironmentVariable\\(\"Path\", \"Machine\"\\) + \";\" + [Environment]::GetEnvironmentVariable\\(\"Path\", \"User\"\\); Set-Location \"D:\\\\关于我\\\\FitQuest\"; npm.cmd create vite@latest . -- --template react 2>&1)",
+      "PowerShell(cd \"D:\\\\关于我\\\\travel_balancer\"; $env:BROWSER=\"none\"; python -m streamlit run app.py --server.headless true 2>&1)",
+      "PowerShell(cd \"D:\\\\关于我\\\\travel_balancer\"; $env:BROWSER=\"none\"; $env:STREAMLIT_SERVER_HEADLESS=\"true\"; \"\" | python -m streamlit run app.py --server.headless true 2>&1)",
+      "PowerShell(pip install *)",
+      "PowerShell(python -c \"import pywintypes; print\\('pywintypes OK'\\)\")",
+      "PowerShell(python -c \"import pywintypes; import win32api; print\\('pywin32 OK'\\)\")",
+      "PowerShell(python \"C:\\\\Users\\\\l\\\\AppData\\\\Roaming\\\\Python\\\\Python312\\\\Scripts\\\\pywin32_postinstall.py\" -install 2>&1)",
+      "PowerShell(python -c \"import sys; print\\([p for p in sys.path if 'pywin' in p.lower\\(\\)]\\)\")",
+      "PowerShell(python -c \"import portalocker.portalocker; print\\(portalocker.portalocker.__file__\\)\" 2>&1)",
+      "PowerShell(python -c \"import sys; [print\\(i, p\\) for i, p in enumerate\\(sys.path\\)]; print\\('---'\\); import pywintypes; print\\('file:', pywintypes.__file__\\); print\\('spec:', __import__\\('importlib'\\).util.find_spec\\('pywintypes'\\)\\)\")",
+      "PowerShell(mkdir *)",
+      "PowerShell(winget install *)",
+      "PowerShell(git *)"
+    ]
+  }
+}

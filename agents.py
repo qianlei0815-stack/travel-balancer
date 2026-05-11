@@ -53,6 +53,8 @@ def create_analyst(llm: LLM) -> Agent:
         ),
         llm=llm,
         verbose=True,
+        max_iter=5,
+        max_execution_time=120,
     )
 
 
@@ -78,6 +80,8 @@ def create_planner(llm: LLM, tools: list | None = None) -> Agent:
         ),
         llm=llm,
         verbose=True,
+        max_iter=8,
+        max_execution_time=180,
     )
 
 
@@ -99,6 +103,8 @@ def create_personal_concierge(llm: LLM) -> Agent:
         ),
         llm=llm,
         verbose=True,
+        max_iter=5,
+        max_execution_time=120,
     )
 
 
@@ -121,4 +127,6 @@ def create_communicator(llm: LLM) -> Agent:
         ),
         llm=llm,
         verbose=True,
+        max_iter=5,
+        max_execution_time=120,
     )

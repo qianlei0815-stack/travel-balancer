@@ -43,10 +43,10 @@ def create_analysis_task(agent, preferences_json: str,
     )
 
 
-def create_planning_task(agent, analysis_task: Task,
-                         destination: str, days: int,
-                         weather_context: str = "") -> Task:
-    """双轨规划师：基于冲突报告强制输出两套独立行程方案"""
+def create_planning_task_a(agent, analysis_task: Task,
+                            destination: str, days: int,
+                            weather_context: str = "") -> Task:
+    """规划师（异步）：方案 A — 帕累托妥协路线（集体行动）"""
     weather_block = (
         f"\n\n**===== 天气预报 ====**\n{weather_context}\n"
         "请根据天气状况动态调整行程：雨天优先安排室内活动（博物馆、美食），"
@@ -58,8 +58,7 @@ def create_planning_task(agent, analysis_task: Task,
             f"目的地：**{destination}**，行程天数：**{days} 天**\n\n"
             "上一步的冲突分析师已经输出了《冲突与共识分析报告》，明确指出了成员之间的"
             " 🔴 Hard No 底线、🟡 可协商空间、🟢 共识点。\n"
-            "现在请你**以双轨规划师的身份**，基于那份报告**同时制定两套完全独立的行程方案**——\n"
-            "一套『集体妥协』，一套『动态分头』。\n\n"
+            "现在请你**以双轨规划师的身份**，基于那份报告**制定方案 A：帕累托妥协路线**。\n\n"
             "**===== 方案 A：帕累托妥协路线（集体行动）=====**\n"
             "设计逻辑：寻找全员的最大公约数，所有人都在一起行动。\n"
             "- 忽略极端 intensity_score 值，按团队平均节奏（或设定为 5 分）安排\n"
@@ -73,6 +72,55 @@ def create_planning_task(agent, analysis_task: Task,
             "   - 钵钵鸡（双锅：藤椒 vs 红油）\n"
             "   - 川菜馆的『一菜两做』（如：宫保鸡丁不辣版 + 传统版）\n"
             "   - 陶德砂锅（一锅辣一锅不辣）\n\n"
+            "**===== 地理聚合约束（重要）=====**\n"
+            "- 同一天的景点必须**按地理区域聚类**，不要安排相距很远的景点\n"
+            "- 尽量将同一地理区域（如步行 15 分钟圈 / 驾车 5 公里内）的景点安排在同一天\n"
+            "- 如果两个景点驾车超过 30 分钟，除非是跨上午/下午的自然分界，否则应分到不同天\n\n"
+            "**===== 交通耗时约束（重要）=====**\n"
+            "- 景点之间必须估算交通耗时并计入行程\n"
+            "- 标注每天的交通形式建议（步行 / 打车 / 地铁）\n"
+            "- **每天有效游览时间**（扣除交通后）建议控制在 6-8 小时\n"
+            "- 如果全天交通总耗时超过 2 小时，说明行程太分散，需要减少景点或重新分组\n\n"
+            "**===== 行程鲁棒性校验（重要）=====**\n"
+            "- 在生成两点之间的交通时，必须留出至少 **30 分钟** 的弹性时间（找路、排队、拍照）\n\n"
+            "**===== 通用要求 =====**\n"
+            f"- 按 **Day 1 / Day 2 / ... / Day {days}** 逐日编排，共 {days} 天\n"
+            "- 每天的活动需注明「推荐理由」和「对谁友好」\n"
+            f"- 请推荐 {destination} 的真实景点\n"
+            "- 景点名称请用 **加粗** 或 【书名号】 括起来，方便后续地图标注\n"
+            "- 你可以使用 DuckDuckGo 搜索工具（`DuckDuckGoSearchRun`）实时查询景点信息、"
+            "营业时间、美食推荐等，确保推荐准确可靠\n"
+            "- **推荐餐厅必须验证营业状态：** 搜索格式为『餐厅名 + 城市 + 营业状态 2026』。"
+            "如果出现『歇业』『暂停营业』『搬迁』字样，立即寻找评分不低于 **4.5 分** 的同类餐厅平替\n"
+            "- **搜索频率限制：** 每次任务执行中最多发起 **3 次搜索调用**\n"
+            f"{weather_block}"
+            "输出时，以 `## 方案 A：集体妥协路线` 开头。"
+        ),
+        expected_output=(
+            f"方案 A markdown 格式的 {days} 日行程"
+        ),
+        agent=agent,
+        async_execution=True,
+        context=[analysis_task],
+    )
+
+
+def create_planning_task_b(agent, analysis_task: Task,
+                            destination: str, days: int,
+                            weather_context: str = "") -> Task:
+    """规划师（异步）：方案 B — GACO 动态子群路线（分头行动 + 汇合）"""
+    weather_block = (
+        f"\n\n**===== 天气预报 ====**\n{weather_context}\n"
+        "请根据天气状况动态调整行程：雨天优先安排室内活动（博物馆、美食），"
+        "晴天多安排户外景点。每天标注天气提示。\n"
+    ) if weather_context else ""
+
+    return Task(
+        description=(
+            f"目的地：**{destination}**，行程天数：**{days} 天**\n\n"
+            "上一步的冲突分析师已经输出了《冲突与共识分析报告》，明确指出了成员之间的"
+            " 🔴 Hard No 底线、🟡 可协商空间、🟢 共识点。\n"
+            "现在请你**以双轨规划师的身份**，基于那份报告**制定方案 B：GACO 动态子群路线**。\n\n"
             "**===== 方案 B：GACO 动态子群路线（分头行动 + 汇合）=====**\n"
             "设计逻辑：尊重极致差异，在分开中保持联结。\n"
             "- 每天安排特定的『分头行动』时段（如上午或下午）\n"
@@ -90,33 +138,26 @@ def create_planning_task(agent, analysis_task: Task,
             "- **每天有效游览时间**（扣除交通后）建议控制在 6-8 小时\n"
             "- 如果全天交通总耗时超过 2 小时，说明行程太分散，需要减少景点或重新分组\n\n"
             "**===== 行程鲁棒性校验（重要）=====**\n"
-            "- 你必须扮演一个极其挑剔的本地向导\n"
             "- 在生成两点之间的交通时，必须留出至少 **30 分钟** 的弹性时间（找路、排队、拍照）\n"
-            "- 禁止安排『让不熟悉地形的游客在拥挤景区内部精准汇合』这种高风险行为\n"
             "- 汇合点应选择在地标明显、容易找到的位置（如景区正门、地铁站出口、大型雕塑旁、知名咖啡厅）\n\n"
             "**===== 通用要求 =====**\n"
-            f"- 两套方案都必须按 **Day 1 / Day 2 / ... / Day {days}** 逐日编排，共 {days} 天\n"
+            f"- 按 **Day 1 / Day 2 / ... / Day {days}** 逐日编排，共 {days} 天\n"
             "- 每天的活动需注明「推荐理由」和「对谁友好」\n"
-            f"- 如果某天的行程涉及景点，请推荐 {destination} 的真实景点\n"
+            f"- 请推荐 {destination} 的真实景点\n"
             "- 景点名称请用 **加粗** 或 【书名号】 括起来，方便后续地图标注\n"
             "- 你可以使用 DuckDuckGo 搜索工具（`DuckDuckGoSearchRun`）实时查询景点信息、"
             "营业时间、美食推荐等，确保推荐准确可靠\n"
             "- **推荐餐厅必须验证营业状态：** 搜索格式为『餐厅名 + 城市 + 营业状态 2026』。"
             "如果出现『歇业』『暂停营业』『搬迁』字样，立即寻找评分不低于 **4.5 分** 的同类餐厅平替\n"
-            "- **搜索频率限制：** 每次任务执行中最多发起 **3 次搜索调用**，"
-            "请将搜索集中在关键信息上（如景点开放时间、推荐餐厅、当地天气），"
-            "避免频繁搜索导致速率限制（HTTP 429）\n"
+            "- **搜索频率限制：** 每次任务执行中最多发起 **3 次搜索调用**\n"
             f"{weather_block}"
-            "输出时，先用 `## 方案 A：集体妥协路线` 二级标题开始方案 A，"
-            "再用 `## 方案 B：动态分头路线` 二级标题开始方案 B。"
+            "输出时，以 `## 方案 B：动态分头路线` 开头。"
         ),
         expected_output=(
-            f"两套 markdown 格式的 {days} 日行程方案，用二级标题分隔：\n"
-            "- ## 方案 A：集体妥协路线（集体行动，平均节奏）\n"
-            "- ## 方案 B：动态分头路线（分头行动 + 汇合点）\n"
-            "每套方案都包含 Day 1 ~ Day N 的逐日安排"
+            f"方案 B markdown 格式的 {days} 日行程"
         ),
         agent=agent,
+        async_execution=True,
         context=[analysis_task],
     )
 
@@ -124,8 +165,12 @@ def create_planning_task(agent, analysis_task: Task,
 def create_communication_task(agent, upstream_task: Task,
                               destination: str, days: int,
                               is_single_mode: bool = False,
-                              weather_context: str = "") -> Task:
-    """导游沟通者：将行程方案转化为有温度的攻略"""
+                              weather_context: str = "",
+                              plan_b_task: Task | None = None) -> Task:
+    """导游沟通者：将行程方案转化为有温度的攻略
+
+    多人模式时传入 plan_b_task，communicator 会等待两个方案都就绪再润色。
+    """
     member_part = (
         "- 对每位成员点名回应，让他们觉得自己的需求被记住了\n"
         "   - 逐一回应每个人的偏好和 Hard No\n"
@@ -155,7 +200,7 @@ def create_communication_task(agent, upstream_task: Task,
     else:
         # 多人模式：润色两套方案（AB 双方案）+ 解释设计理念
         body = (
-            "上一步的双轨规划师已经制定了两套行程方案——\n"
+            "上一步已经生成了两套独立的行程方案——\n"
             "方案 A「集体妥协路线」和方案 B「动态分头路线」。\n"
             "现在请你**以端水大师的身份**，将这两套方案分别润色成有温度、高情商的最终旅行攻略，"
             "并且**向用户解释『为什么这么排』**。\n\n"
@@ -188,6 +233,10 @@ def create_communication_task(agent, upstream_task: Task,
         f"\n\n**天气预报提醒：**\n{weather_context}" if weather_context else ""
     )
 
+    context = [upstream_task]
+    if plan_b_task:
+        context.append(plan_b_task)
+
     return Task(
         description=(
             f"目的地：**{destination}**，行程天数：**{days} 天**\n\n"
@@ -196,7 +245,7 @@ def create_communication_task(agent, upstream_task: Task,
         ),
         expected_output=expected,
         agent=agent,
-        context=[upstream_task],
+        context=context,
     )
 
 

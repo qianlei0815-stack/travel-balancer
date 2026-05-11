@@ -55,7 +55,8 @@ except Exception:
     _search_tool = None
 from tasks import (  # noqa: E402
     create_analysis_task,
-    create_planning_task,
+    create_planning_task_a,
+    create_planning_task_b,
     create_communication_task,
     create_concierge_task,
 )
@@ -164,7 +165,10 @@ def parse_ab_plans(raw: str) -> dict:
 
 def run_multi(users: list, destination: str, days: int) -> dict:
     """
-    多人模式：需求分析师 → 行程规划师（AB 双方案）→ 导游沟通者（润色双方案）
+    多人模式：需求分析师 → 规划师（AB 双方案并行）→ 端水大师（润色双方案）
+
+    方案 A 和方案 B 的规划任务通过 async_execution=True 并行执行，
+    端水大师等待两个方案都就绪后再统一润色。
 
     参数:
         users: 成员列表
@@ -182,15 +186,23 @@ def run_multi(users: list, destination: str, days: int) -> dict:
     preferences_json = json.dumps(users, ensure_ascii=False, indent=2)
     weather_ctx = _fetch_weather(destination)
 
+    # Step 1: 冲突分析（串行）
     task1 = create_analysis_task(analyst, preferences_json, destination, days)
-    task2 = create_planning_task(planner, task1, destination, days,
-                                 weather_context=weather_ctx)
-    task3 = create_communication_task(communicator, task2, destination, days,
-                                      weather_context=weather_ctx)
+
+    # Step 2: 方案 A + 方案 B 并行生成（async_execution=True）
+    task_plan_a = create_planning_task_a(planner, task1, destination, days,
+                                          weather_context=weather_ctx)
+    task_plan_b = create_planning_task_b(planner, task1, destination, days,
+                                          weather_context=weather_ctx)
+
+    # Step 3: 端水大师等待两个方案都就绪后统一润色
+    task3 = create_communication_task(communicator, task_plan_a, destination, days,
+                                      weather_context=weather_ctx,
+                                      plan_b_task=task_plan_b)
 
     crew = Crew(
         agents=[analyst, planner, communicator],
-        tasks=[task1, task2, task3],
+        tasks=[task1, task_plan_a, task_plan_b, task3],
         process=Process.sequential,
         verbose=True,
     )

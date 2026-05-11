@@ -8,7 +8,10 @@ from crewai import Task
 
 def create_analysis_task(agent, preferences_json: str,
                          destination: str, days: int) -> Task:
-    """冲突分析师：社会心理学视角的隐性对立分析（多人模式）"""
+    """冲突分析师：结构化 JSON 格式的冲突分析（多人模式）
+
+    输出精炼 JSON 而非 Markdown 长文，大幅减少后续 Agent 的处理耗时。
+    """
     return Task(
         description=(
             f"你正在为一次前往 **{destination}** 的 **{days} 天** 旅行做冲突分析。\n\n"
@@ -24,20 +27,45 @@ def create_analysis_task(agent, preferences_json: str,
             "1️⃣ **预算冲突**：各成员的预算等级差距？省钱党和宽裕派如何平衡？\n"
             "2️⃣ **作息冲突**：起床/睡觉时间是否匹配？早睡早起和夜猫子如何协调？\n"
             "3️⃣ **旅行节奏冲突（隐性对立重点）**：对比所有人的 intensity_score。"
-            "如果分差大于 5 分（如一人 2 一人 9），必须作为**红色预警**在报告中突出标注，"
-            "并明确建议『分头行动』或『交替安排』作为可能的调解方向。\n"
-            "4️⃣ **心愿单冲突（Hard No 重点）**：wishlist 中是否有绝对不可调和的需求？"
-            "（如：有人一定要吃辣、有人完全不吃辣；有人要爬山、有人绝对不爬山）\n\n"
-            "输出一份 **《冲突与共识分析报告》**（markdown 格式），包含以下三个板块：\n"
-            "### 1. 成员需求摘要\n"
-            "### 2. 冲突点逐项分析（每个冲突标注 🔴 Hard No / 🟡 可协商 / 🟢 共识）\n"
-            "### 3. 协调建议方向（哪些必须拆伙、哪些可以轮流）"
+            "如果分差大于 5 分（如一人 2 一人 9），必须将 severity 设为 high，"
+            "并明确建议分头行动。\n"
+            "4️⃣ **心愿单冲突（Hard No 重点）**：wishlist 中是否有绝对不可调和的需求？\n\n"
+            "**输出必须严格遵循以下 JSON Schema，不要包含任何 Markdown 包装或额外文字：**\n"
+            "```json\n"
+            "{\n"
+            '  "members": [\n'
+            "    {\n"
+            '      "name": "成员名",\n'
+            '      "budget": "省钱党|适中派|宽裕派",\n'
+            '      "sleep_energy": "早睡早起|正常作息|夜猫子",\n'
+            '      "intensity_score": 5,\n'
+            '      "hard_no": ["绝对不爬山", "不吃香菜"],\n'
+            '      "wishes": ["看熊猫", "吃火锅"],\n'
+            '      "is_private": false\n'
+            "    }\n"
+            "  ],\n"
+            '  "conflicts": [\n'
+            "    {\n"
+            '      "type": "budget|sleep|pace|wish",\n'
+            '      "severity": "high|medium|low",\n'
+            '      "label": "🔴|🟡|🟢",\n'
+            '      "between": ["成员A", "成员B"],\n'
+            '      "detail": "冲突简要描述"\n'
+            "    }\n"
+            "  ],\n"
+            '  "consensus": ["大家都想吃的食物", "共同兴趣"],\n'
+            '  "suggestions": ["建议分头行动", "餐饮轮流照顾"],\n'
+            '  "recommend_split": true\n'
+            "}\n"
+            "```\n"
+            "**关键规则：**\n"
+            "- severity=high 的冲突才标 🔴（Hard No），medium 标 🟡，low 或共识标 🟢\n"
+            "- hard_no 从 wishlist 中提取绝对不可妥协的底线（如不吃辣、不爬山）\n"
+            "- intensity_score 分差 > 5 时 recommend_split 设为 true\n"
+            "- 省去所有解释性文字、客套话、过渡句，只输出 JSON"
         ),
         expected_output=(
-            "markdown 格式的《冲突与共识分析报告》，包含：\n"
-            "1. 成员需求摘要表\n"
-            "2. 逐项冲突分析（带 🔴🟡🟢 分类标签）\n"
-            "3. 协调建议方向（含是否建议分头行动的结论）"
+            "JSON 格式的冲突分析数据，包含成员摘要、冲突列表、共识点、协调建议"
         ),
         agent=agent,
     )
@@ -56,9 +84,12 @@ def create_planning_task_a(agent, analysis_task: Task,
     return Task(
         description=(
             f"目的地：**{destination}**，行程天数：**{days} 天**\n\n"
-            "上一步的冲突分析师已经输出了《冲突与共识分析报告》，明确指出了成员之间的"
-            " 🔴 Hard No 底线、🟡 可协商空间、🟢 共识点。\n"
-            "现在请你**以双轨规划师的身份**，基于那份报告**制定方案 A：帕累托妥协路线**。\n\n"
+            "上一步的冲突分析师已经输出了**结构化 JSON 格式**的冲突分析数据，包含：\n"
+            "- members: 每位成员的预算、作息、体力、Hard No 底线、心愿\n"
+            "- conflicts: 冲突点列表（带 severity 和 🔴🟡🟢 标签）\n"
+            "- consensus: 全员共识点\n"
+            "- suggestions: 协调建议\n\n"
+            "现在请你**以双轨规划师的身份**，基于那份数据**制定方案 A：帕累托妥协路线**。\n\n"
             "**===== 方案 A：帕累托妥协路线（集体行动）=====**\n"
             "设计逻辑：寻找全员的最大公约数，所有人都在一起行动。\n"
             "- 忽略极端 intensity_score 值，按团队平均节奏（或设定为 5 分）安排\n"
@@ -118,9 +149,12 @@ def create_planning_task_b(agent, analysis_task: Task,
     return Task(
         description=(
             f"目的地：**{destination}**，行程天数：**{days} 天**\n\n"
-            "上一步的冲突分析师已经输出了《冲突与共识分析报告》，明确指出了成员之间的"
-            " 🔴 Hard No 底线、🟡 可协商空间、🟢 共识点。\n"
-            "现在请你**以双轨规划师的身份**，基于那份报告**制定方案 B：GACO 动态子群路线**。\n\n"
+            "上一步的冲突分析师已经输出了**结构化 JSON 格式**的冲突分析数据，包含：\n"
+            "- members: 每位成员的预算、作息、体力、Hard No 底线、心愿\n"
+            "- conflicts: 冲突点列表（带 severity 和 🔴🟡🟢 标签）\n"
+            "- consensus: 全员共识点\n"
+            "- suggestions: 协调建议\n\n"
+            "现在请你**以双轨规划师的身份**，基于那份数据**制定方案 B：GACO 动态子群路线**。\n\n"
             "**===== 方案 B：GACO 动态子群路线（分头行动 + 汇合）=====**\n"
             "设计逻辑：尊重极致差异，在分开中保持联结。\n"
             "- 每天安排特定的『分头行动』时段（如上午或下午）\n"

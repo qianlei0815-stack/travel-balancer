@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -47,12 +48,12 @@ from agents import (  # noqa: E402
     create_personal_concierge,
 )
 
-# DuckDuckGo 搜索工具（零门槛，无需 API Key）
+# DuckDuckGo 搜索工具（Agent 唯一的实时信息来源）
 try:
     from langchain_community.tools import DuckDuckGoSearchRun
-    _search_tool = DuckDuckGoSearchRun()
+    _planner_tools = [DuckDuckGoSearchRun()]
 except Exception:
-    _search_tool = None
+    _planner_tools = []
 from tasks import (  # noqa: E402
     create_analysis_task,
     create_planning_task_a,
@@ -163,7 +164,8 @@ def parse_ab_plans(raw: str) -> dict:
     return {"intro": "", "plan_a": raw.strip(), "plan_b": ""}
 
 
-def run_multi(users: list, destination: str, days: int) -> dict:
+def run_multi(users: list, destination: str, days: int,
+              on_step: Callable | None = None) -> dict:
     """
     多人模式：需求分析师 → 规划师（AB 双方案并行）→ 端水大师（润色双方案）
 
@@ -174,28 +176,33 @@ def run_multi(users: list, destination: str, days: int) -> dict:
         users: 成员列表
         destination: 目的地
         days: 旅行天数
+        on_step: 阶段回调 (phase, message) → None
 
     返回:
         dict: {"intro": "...", "plan_a": "...", "plan_b": "..."}
     """
     llm = create_llm()
     analyst = create_analyst(llm)
-    planner = create_planner(llm, tools=[_search_tool] if _search_tool else None)
+    planner = create_planner(llm, tools=_planner_tools if _planner_tools else None)
     communicator = create_communicator(llm)
 
     preferences_json = json.dumps(users, ensure_ascii=False, indent=2)
     weather_ctx = _fetch_weather(destination)
 
     # Step 1: 冲突分析（串行）
+    if on_step: on_step("analyst", "分析每位成员的旅行偏好与底线，识别团队中的隐性对立……")
     task1 = create_analysis_task(analyst, preferences_json, destination, days)
 
     # Step 2: 方案 A + 方案 B 并行生成（async_execution=True）
+    if on_step: on_step("planning_a", "规划方案 A：帕累托妥协路线——寻找全员最大公约数……")
     task_plan_a = create_planning_task_a(planner, task1, destination, days,
                                           weather_context=weather_ctx)
+    if on_step: on_step("planning_b", "规划方案 B：GACO 动态子群路线——分头行动 + 汇合……")
     task_plan_b = create_planning_task_b(planner, task1, destination, days,
                                           weather_context=weather_ctx)
 
     # Step 3: 端水大师等待两个方案都就绪后统一润色
+    if on_step: on_step("communicator", "端水大师正在润色两套方案，逐一点名回应每位成员的需求……")
     task3 = create_communication_task(communicator, task_plan_a, destination, days,
                                       weather_context=weather_ctx,
                                       plan_b_task=task_plan_b)
@@ -207,10 +214,12 @@ def run_multi(users: list, destination: str, days: int) -> dict:
         verbose=True,
     )
     result = str(crew.kickoff())
+    if on_step: on_step("complete", "✅ 双方案行程已生成！")
     return parse_ab_plans(result)
 
 
-def run_single(users: list, destination: str, days: int) -> str:
+def run_single(users: list, destination: str, days: int,
+               on_step: Callable | None = None) -> str:
     """单人模式：个人管家 → 导游沟通者（返回普通文本）"""
     llm = create_llm()
     concierge = create_personal_concierge(llm)
@@ -219,8 +228,11 @@ def run_single(users: list, destination: str, days: int) -> str:
     preferences_json = json.dumps(users, ensure_ascii=False, indent=2)
     weather_ctx = _fetch_weather(destination)
 
+    if on_step: on_step("concierge", "个人管家正在根据你的偏好定制专属攻略……")
     task1 = create_concierge_task(concierge, preferences_json, destination, days,
                                    weather_context=weather_ctx)
+
+    if on_step: on_step("communicator", "正在润色攻略，让每一处安排都说出『为什么适合你』……")
     task2 = create_communication_task(communicator, task1, destination, days,
                                       is_single_mode=True,
                                       weather_context=weather_ctx)
@@ -231,26 +243,34 @@ def run_single(users: list, destination: str, days: int) -> str:
         process=Process.sequential,
         verbose=True,
     )
-    return str(crew.kickoff())
+    result = str(crew.kickoff())
+    if on_step: on_step("complete", "✅ 个人攻略已就绪！")
+    return result
 
 
-def run(users: list, destination: str, days: int) -> dict:
+def run(users: list, destination: str, days: int,
+        on_step: Callable | None = None) -> dict:
     """
     智能分流入口。
     - 1 人 → run_single（个人管家），返回 {"plan_a": "攻略"}
     - 多人 → run_multi（AB 双方案），返回 {"intro": "...", "plan_a": "...", "plan_b": "..."}
     """
+    if on_step: on_step("start", f"🧠 多智能体协同开始：{len(users)} 人 · {destination} · {days} 天")
     if len(users) == 1:
-        result = run_single(users, destination, days)
+        result = run_single(users, destination, days, on_step=on_step)
         return {"plan_a": result}
-    return run_multi(users, destination, days)
+    return run_multi(users, destination, days, on_step=on_step)
 
 
-def run_from_group(group_id: str) -> dict:
+def run_from_group(group_id: str, on_step: Callable | None = None) -> dict:
     """
     从 group_id 出发，加载所有成员数据，执行完整的多智能体流程。
 
     这是 Streamlit 管理后台的推荐入口——无需在 app.py 中手动组装用户数据。
+
+    参数:
+        group_id: 小组 ID
+        on_step: 阶段回调 (phase, message) → None，用于 Streamlit 状态更新
 
     返回:
         {"intro": "...", "plan_a": "...", "plan_b": "..."}
@@ -266,7 +286,7 @@ def run_from_group(group_id: str) -> dict:
     if not destination.strip():
         return {"intro": "", "plan_a": "请先在管理后台设置目的地。", "plan_b": ""}
 
-    return run(users, destination, days)
+    return run(users, destination, days, on_step=on_step)
 
 
 # ====================================================================

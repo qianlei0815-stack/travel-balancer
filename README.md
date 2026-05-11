@@ -82,7 +82,7 @@
 | AI 框架 | CrewAI |
 | 大模型 | DeepSeek / OpenAI（可切换） |
 | 地图 | 高德地图 Web API + JS API |
-| 搜索 | DuckDuckGo（实时景点/餐厅查询） |
+| 搜索 | DuckDuckGo（景点/美食推荐）+ 高德 POI（周边验证） |
 | 数据 | 本地 JSON 文件 |
 
 ## 🚀 快速开始

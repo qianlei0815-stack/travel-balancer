@@ -103,7 +103,10 @@ def geocode(address: str, city: str = "") -> dict[str, Any]:
     返回: {"name": str, "lng": float, "lat": float, "formatted": str,
            "level": str, "adcode": str}
     """
-    data = _get("geocode/geo", {"address": address, "city": city})
+    params: dict[str, str] = {"address": address}
+    if city:
+        params["city"] = city
+    data = _get("geocode/geo", params)
     geocodes = data.get("geocodes", [])
     if not geocodes:
         raise AmapError(f"未找到地址: {address}")
@@ -434,3 +437,147 @@ def build_day_routes(day_places: dict[int, list[str]],
         result[day] = enriched
 
     return result
+
+
+# ====================================================================
+#  6. 工具方法（供 CrewAI Agent 调用，返回简洁字符串）
+# ====================================================================
+
+def get_location(address: str, city: str = "") -> str:
+    """地名 → "经度,纬度" 字符串
+
+    参数:
+        address: 地名/景点名（建议包含城市名防同名匹配）
+        city: 城市限定，传空则自动匹配
+
+    返回:
+        "lng,lat" 字符串，失败时返回空字符串
+    """
+    try:
+        g = geocode(address, city=city)
+        return f"{g['lng']},{g['lat']}"
+    except AmapError:
+        logger.warning("get_location 失败: %s (%s)", address, city)
+        return ""
+    except Exception as e:
+        logger.error("get_location 意外异常: %s", e)
+        return ""
+
+
+def get_route_info(origin_name: str, destination_name: str,
+                   city: str = "") -> str:
+    """起止地名 → 驾车路线自然语言描述
+
+    参数:
+        origin_name: 起点地名（建议包含城市名）
+        destination_name: 终点地名（建议包含城市名）
+        city: 城市限定，传空则自动匹配
+
+    返回:
+        "从[A]到[B]驾车距离约 X 公里，预估耗时 Y 分钟。"
+        失败时返回友好提示。
+    """
+    try:
+        origin_loc = get_location(origin_name, city=city)
+        if not origin_loc:
+            return f"无法获取 {origin_name} 的位置信息。"
+        dest_loc = get_location(destination_name, city=city)
+        if not dest_loc:
+            return f"无法获取 {destination_name} 的位置信息。"
+
+        route = driving_route(origin_loc, dest_loc)
+        return (
+            f"从{origin_name}到{destination_name}"
+            f"驾车距离约 {route['distance_km']} 公里，"
+            f"预估耗时 {route['duration_min']} 分钟。"
+        )
+    except AmapError as e:
+        logger.warning("get_route_info 高德错误: %s", e)
+        return f"抱歉，暂时无法查询从{origin_name}到{destination_name}的驾车信息，建议根据常识判断交通耗时。"
+    except Exception as e:
+        logger.error("get_route_info 意外异常: %s", e)
+        return f"路线查询异常，请根据常识估算从{origin_name}到{destination_name}的交通时间。"
+
+
+def search_nearby_poi(center_name: str, keyword: str, radius: int = 1000,
+                      city: str = "") -> str:
+    """周边 POI 搜索 → 格式化的结果列表字符串
+
+    参数:
+        center_name: 中心地标名称（建议包含城市名）
+        keyword: 搜索关键词（如"火锅"、"咖啡"、"不辣美食"）
+        radius: 搜索半径（米），默认 1000
+        city: 城市限定，传空则自动匹配
+
+    返回:
+        格式化字符串："1. 店铺名 - 距离 Xm - 地址: xxx\\n2. ..."
+        失败时返回友好提示。
+    """
+    try:
+        center_loc = get_location(center_name, city=city)
+        if not center_loc:
+            return f"无法获取 {center_name} 的位置信息，请根据常识推荐。"
+    except Exception as e:
+        logger.error("search_nearby_poi 定位失败: %s", e)
+        return f"无法获取 {center_name} 的位置信息，请根据常识推荐。"
+
+    # === 关键词脱敏：去掉 Agent 可能夹带的噪音词 ===
+    _noise_words = {"成都", "推荐", "好吃的", "必去", "打卡", "著名的", "好玩的"}
+    cleaned = keyword.strip()
+    for w in _noise_words:
+        cleaned = cleaned.replace(w, "").strip()
+    # 去掉多余空格和标点
+    cleaned = re.sub(r"[，、\s]+", " ", cleaned).strip()
+    if not cleaned:
+        cleaned = "美食"
+
+    # === 带降级兜底的搜索 ===
+    def _do_search(kw: str) -> list[dict]:
+        try:
+            data = _get("place/around", {
+                "location": center_loc,
+                "keywords": kw,
+                "radius": str(radius),
+                "offset": "5",
+            })
+            return data.get("pois", [])
+        except AmapError:
+            return []
+
+    pois = _do_search(cleaned)
+
+    # 降级：原词无结果 → 逐级缩小关键词
+    if not pois:
+        fallback_chain = []
+        # 尝试提取最后一个有意义的词（如 "陶德砂锅" → "砂锅"）
+        words = cleaned.split()
+        if len(words) > 1:
+            fallback_chain.append(words[-1])
+        # 通用兜底
+        fallback_chain.extend(["川菜", "小吃", "美食", "餐厅"])
+        for fb in fallback_chain:
+            if fb == cleaned:
+                continue
+            pois = _do_search(fb)
+            if pois:
+                logger.info("POI 搜索降级: '%s' → '%s' 命中 %d 条", cleaned, fb, len(pois))
+                break
+
+    if not pois:
+        return f"在{center_name}附近未找到「{keyword}」相关地点，建议换一批关键词或根据常识推荐。"
+
+    lines = []
+    for i, poi in enumerate(pois[:5], 1):
+        name = poi.get("name", "未知")
+        dist = poi.get("distance", "")
+        address = poi.get("address", "")
+        poi_type = poi.get("type", "")
+        parts = [f"{i}. {name}"]
+        if dist:
+            parts.append(f"距离 {dist}m")
+        if address:
+            parts.append(f"地址: {address}")
+        if poi_type:
+            parts.append(f"类型: {poi_type}")
+        lines.append(" - ".join(parts))
+    return "\n".join(lines)

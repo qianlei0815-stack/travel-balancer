@@ -575,12 +575,10 @@ def show_admin(group_id: str):
             if m["status"] == "completed":
                 st.success(f"✅ **{m['name']}** — 已提交")
                 with st.expander(f"🔗 {m['name']} 的专属链接"):
-                    st.markdown(f"[{full_link}]({full_link})")
                     st.code(full_link)
             else:
                 st.warning(f"⏳ **{m['name']}** — 未提交")
                 with st.expander(f"🔗 {m['name']} 的专属链接"):
-                    st.markdown(f"[{full_link}]({full_link})")
                     st.code(full_link)
                 all_completed = False
         st.caption(f"**{sum(1 for m in members.values() if m['status']=='completed')} / {len(members)}** 人已完成")
@@ -653,14 +651,33 @@ def show_admin(group_id: str):
         ready = all_completed and bool(members) and has_api and bool(dest.strip())
         if ready:
             if st.button("✨ **开始计算最终行程**", type="primary", use_container_width=True):
-                with st.spinner("🧠 多智能体协同中……冲突分析 → 双轨规划 → 端水润色..."):
-                    try:
-                        import crew_logic
-                        res = crew_logic.run_from_group(group_id)
-                        save_result(group_id, res)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ 计算失败：{e}")
+                status = st.status("🧠 多智能体协同中……", expanded=True)
+                status.write("加载成员偏好数据……")
+                try:
+                    import crew_logic
+
+                    def _on_step(phase: str, msg: str):
+                        status.write(f"{msg}")
+                        phase_labels = {
+                            "start":        ("⏳ 准备就绪", "running"),
+                            "analyst":      ("🔍 冲突分析中", "running"),
+                            "planning_a":   ("📋 方案 A 规划中", "running"),
+                            "planning_b":   ("📋 方案 B 规划中", "running"),
+                            "communicator": ("💬 端水润色中", "running"),
+                            "concierge":    ("🎯 个人管家中", "running"),
+                            "complete":     ("✅ 行程已生成", "complete"),
+                        }
+                        if phase in phase_labels:
+                            status.update(label=phase_labels[phase][0],
+                                           state=phase_labels[phase][1])
+
+                    res = crew_logic.run_from_group(group_id, on_step=_on_step)
+                    save_result(group_id, res)
+                    status.update(label="✅ 行程已就绪！", state="complete", expanded=False)
+                    st.rerun()
+                except Exception as e:
+                    status.update(label="❌ 计算失败", state="error")
+                    st.error(f"❌ 计算失败：{e}")
         else:
             reason = (
                 "⚠️ 等待所有成员提交" if not all_completed else
@@ -915,6 +932,34 @@ def _render_route_map(plan_text: str, destination: str, days: int,
         return None, f"地图渲染异常: {e}"
 
 
+# ====================================================================
+#  打字机效果
+# ====================================================================
+
+def _reveal_text(text: str, key: str, speed: float = 0.008):
+    """打字机效果展示 Markdown 文本，仅首次加载时动画"""
+    cache_key = f"tw_done_{key}"
+    if st.session_state.get(cache_key):
+        st.markdown(text)
+        return
+
+    placeholder = st.empty()
+    words = text.split(" ")
+    total = len(words)
+    chunk = max(1, total // 35)
+
+    for i in range(0, total, chunk):
+        end = min(i + chunk, total)
+        revealed = " ".join(words[:end])
+        if end < total:
+            placeholder.markdown(revealed + " ▌")
+        else:
+            placeholder.markdown(revealed)
+        time.sleep(speed * (end - i))
+
+    st.session_state[cache_key] = True
+
+
 def _show_result(result: dict, group: dict):
     """渲染 AB 双方案或单人方案"""
     n = len(_scan_members(group.get("group_id", "")))
@@ -928,8 +973,10 @@ def _show_result(result: dict, group: dict):
     dest = group.get("destination", "")
     ndays = group.get("days", 3)
 
+    gid = group.get("group_id", "unknown")
+
     if n == 1 or not result.get("plan_b"):
-        st.markdown(result.get("plan_a", ""))
+        _reveal_text(result.get("plan_a", ""), f"{gid}_plan_a")
         # 单人地图
         map_html, map_err = _render_route_map(
             result.get("plan_a", ""), dest, ndays, "个人定制行程"
@@ -952,13 +999,13 @@ def _show_result(result: dict, group: dict):
                 (result.get("intro", "") + "\n\n---\n\n")
                 if result.get("intro") else ""
             ) + result.get("plan_a", "")
-            st.markdown(plan_a_full)
+            _reveal_text(plan_a_full, f"{gid}_plan_a")
         with tb:
             plan_b_full = (
                 (result.get("intro", "") + "\n\n---\n\n")
                 if result.get("intro") else ""
             ) + result.get("plan_b", "")
-            st.markdown(plan_b_full)
+            _reveal_text(plan_b_full, f"{gid}_plan_b")
 
         # 双方案地图对比
         map_a, map_a_err = _render_route_map(

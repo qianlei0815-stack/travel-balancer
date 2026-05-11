@@ -9,6 +9,7 @@ import logging
 import math
 import os
 import re
+import time
 from typing import Any
 
 import requests
@@ -29,7 +30,7 @@ class AmapError(Exception):
 
 
 # ====================================================================
-#  内部基础请求（带重试机制的 Session）
+#  内部基础请求（带重试机制的 Session + 24h TTL 缓存）
 # ====================================================================
 
 _session = requests.Session()
@@ -43,11 +44,29 @@ _adapter = HTTPAdapter(max_retries=_retry_strategy)
 _session.mount("https://", _adapter)
 _session.mount("http://", _adapter)
 
+# 简单 TTL 缓存：高频测试场景下避免重复调用高德 API
+_cache: dict[str, tuple[float, dict]] = {}
+_CACHE_TTL = 86400  # 24 小时
+
+
+def _cache_key(endpoint: str, params: dict) -> str:
+    items = sorted((k, v) for k, v in params.items() if k != "key")
+    return f"{endpoint}:{items}"
+
 
 def _get(endpoint: str, params: dict) -> dict:
     if not _API_KEY:
         raise AmapError("AMAP_API_KEY 未设置，请在 .env 文件中配置")
     params["key"] = _API_KEY
+
+    # 查缓存（TTL 内且 status=1 的正常结果才缓存）
+    ck = _cache_key(endpoint, params)
+    now = time.time()
+    cached = _cache.get(ck)
+    if cached and cached[0] > now:
+        logger.debug("高德 API 缓存命中: %s", endpoint)
+        return cached[1]
+
     url = f"{_BASE}/{endpoint}"
     try:
         resp = _session.get(url, params=params, timeout=20)
@@ -64,6 +83,9 @@ def _get(endpoint: str, params: dict) -> dict:
         raise AmapError(f"地图服务请求失败: {e}")
     if data.get("status") != "1":
         raise AmapError(f"高德 API 错误 [{info(data)}] — {data.get('info', '未知错误')}")
+
+    # 写入缓存
+    _cache[ck] = (now + _CACHE_TTL, data)
     return data
 
 
